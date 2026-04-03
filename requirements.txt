@@ -8,3 +8,4 @@ ollama
 chardet
 folium
 streamlit-folium
+google-api-python-client
