@@ -148,10 +148,16 @@ if 'df' not in st.session_state:
 # Load Master DB for Player Cards (GSheet Cloud Version)
 if 'plant_db' not in st.session_state:
     from data_maintenance import load_master_db, load_menu_db
-    st.session_state.plant_db = load_master_db()
-    # Cache menu_db in session state for components relying on it
-    if 'menu_db' not in st.session_state:
-        st.session_state.menu_db = load_menu_db()
+    with st.spinner("正在從雲端同步生物資料..."):
+        st.session_state.plant_db = load_master_db()
+        
+        # Cache menu_db in session state for components relying on it
+        if 'menu_db' not in st.session_state:
+            st.session_state.menu_db = load_menu_db()
+            
+        # Empty Check
+        if st.session_state.plant_db is None or st.session_state.plant_db.empty:
+            st.warning("⚠️ 雲端資料庫目前是空的，且無本地備援，請至管理員介面補正資料。")
 
 # Sidebar Navigation
 st.sidebar.title("🌿 Global Plants")
