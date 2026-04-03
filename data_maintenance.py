@@ -12,6 +12,8 @@ from io import BytesIO
 from urllib.parse import quote
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
 # --- [Module 0] SDK Compatibility Handling ---
 try:
@@ -47,6 +49,54 @@ def get_gsheet_client():
     except Exception as e:
         st.error(f"❌ Google Sheets 授權失敗: {e}")
     return None
+
+def get_drive_service():
+    """ 建立 Google Drive 服務 """
+    try:
+        if "gcp_service_account" in st.secrets:
+            info = dict(st.secrets["gcp_service_account"])
+            creds = Credentials.from_service_account_info(info, scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
+            ])
+            return build('drive', 'v3', credentials=creds)
+        if os.path.exists("credentials.json"):
+            creds = Credentials.from_service_account_file("credentials.json", scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
+            ])
+            return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        st.error(f"❌ Google Drive 服務啟動失敗: {e}")
+    return None
+
+def upload_to_drive(image_url, filename):
+    """ 下載圖片並上傳至 Google Drive，回傳直連網址 """
+    folder_id = "1IvRyZtlRlDZSitoOw6b_HqnVoA4Qj0dw"
+    service = get_drive_service()
+    if not service: return None
+    try:
+        resp = requests.get(image_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        if resp.status_code != 200: return None
+        
+        image_data = io.BytesIO(resp.content)
+        file_metadata = {'name': filename, 'parents': [folder_id]}
+        media = MediaIoBaseUpload(image_data, mimetype='image/jpeg', resumable=True)
+        
+        file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        file_id = file.get('id')
+        
+        # 設定權限為公開檢視 (Anyone with the link can view)
+        service.permissions().create(
+            fileId=file_id,
+            body={'type': 'anyone', 'role': 'viewer'}
+        ).execute()
+        
+        # 回傳直連連結
+        return f"https://drive.google.com/uc?export=view&id={file_id}"
+    except Exception as e:
+        st.error(f"❌ 上傳 Drive 失敗: {e}")
+        return None
 
 def load_gsheet_as_df(sheet_name, worksheet_name):
     """ 雲端化資料讀取接口 """
@@ -269,6 +319,22 @@ def fetch_dish_candidates_tri_track(dish_zh, dish_en, dish_local, count=3):
             if len(results) >= count: break
     return results, log_steps
 
+def fetch_plant_representative_image(name_zh, name_en, name_latin):
+    """ 
+    針對物種搜尋一張最佳照片並存入 Drive 
+    """
+    log_steps = []
+    queries = [f"{name_latin} plant photography", f"{name_zh} 代表照片"]
+    candidates = optimized_image_search(queries, log_steps)
+    if not candidates: return None, log_steps
+    
+    # 這裡可以加入 Ollama 篩選邏輯，目前採優先策略
+    for cand in candidates[:5]:
+        filename = f"plant_{name_latin}_{int(time.time())}.jpg"
+        drive_url = upload_to_drive(cand['url'], filename)
+        if drive_url: return drive_url, log_steps
+    return None, log_steps
+
 def optimized_image_search(keywords, log_steps):
     from duckduckgo_search import DDGS
     all_results = []
@@ -387,6 +453,16 @@ def render_page_3():
                     master_ai_survey_agent(target, st.session_state.plant_db)
         with col_t2:
             st.info("AI 將針對選定物種進行學名、科別、起源地與歷史內容的自動補完。")
+            if st.button("🖼️ 補全代表照片 (Drive)"):
+                with st.spinner(f"正在為 {target} 尋找並保存照片..."):
+                    idx = st.session_state.plant_db[st.session_state.plant_db['名稱'] == target].index[0]
+                    row = st.session_state.plant_db.loc[idx]
+                    img_url, logs = fetch_plant_representative_image(target, row.get('英文名稱',''), row.get('學名',''))
+                    if img_url:
+                        st.session_state.plant_db.at[idx, '代表照片'] = img_url
+                        st.image(img_url, caption="新上傳的照片 (Google Drive)")
+                        st.success("照片已保存至 Drive 並更新暫存")
+                    else: st.error("照片補完失敗")
             
     with tab2:
         st.subheader("Google Sheet: city_menus")
