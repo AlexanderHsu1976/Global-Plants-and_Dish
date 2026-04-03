@@ -7,3 +7,4 @@ Pillow
 ollama
 chardet
 folium
+streamlit-folium
