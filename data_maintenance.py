@@ -170,11 +170,8 @@ def master_ai_survey_agent(target_plant, df):
     透過 AI 針對特定植物進行深度考古與地理調研。
     在地端環境可調用 Ollama 模型。
     """
-    if not st.session_state.get('api_active'):
-        st.error("❌ API 未啟動 (請確認 Gemini Key 或本地 Ollama 狀態)")
-        return
+    selected_model = st.session_state.get('research_model', "Gemini (Cloud)")
     
-    # 這裡可以根據環境切換 Gemini 或 Ollama
     prompt = f"""
     你是全球植物傳播考古專家。請針對 '{target_plant}' 進行深度調研。
     輸出應包含以下 JSON 格式：
@@ -182,9 +179,24 @@ def master_ai_survey_agent(target_plant, df):
         "學名": "...", "科": "...", "起源地": "...",
         "傳播歷史": "約 150 字的考據內容", "特點": "特殊用途或效用"
     }}
+    請嚴格遵守 JSON 格式。
     """
+    
     try:
-        resp_text = unified_gemini_response(prompt, is_json=True)
+        if "Ollama" in selected_model:
+            # --- Ollama 地端調研 ---
+            import ollama
+            res = ollama.chat(model='llama3', messages=[{'role': 'user', 'content': prompt}])
+            # 嘗試抓取 JSON 區塊
+            match = re.search(r'\{.*\}', res['message']['content'], re.DOTALL)
+            resp_text = match.group() if match else res['message']['content']
+        else:
+            # --- Gemini 雲端調研 ---
+            if not st.session_state.get('api_active'):
+                st.error("❌ Gemini API 未啟動")
+                return
+            resp_text = unified_gemini_response(prompt, is_json=True)
+            
         data = json.loads(resp_text)
         
         idx = df[df['名稱'] == target_plant].index
@@ -195,7 +207,9 @@ def master_ai_survey_agent(target_plant, df):
             df.at[i, '起源地'] = data.get('起源地', df.at[i, '起源地'])
             df.at[i, '傳播歷史(考據)'] = data.get('傳播歷史', df.at[i, '傳播歷史(考據)'])
             df.at[i, '特殊效用'] = data.get('特點', df.at[i, '特殊效用'])
-            st.success(f"✅ {target_plant} 調研完成！(資料已更新至暫存，記得按下方同步按鈕上傳雲端)")
+            st.success(f"✅ {target_plant} 調研完成！(資料已更新並存入 CSV，點擊右邊一鍵同步即可上雲端)")
+            # 自動存檔本地 CSV
+            df.to_csv("plant_master_db.csv", index=False, encoding='utf-8-sig')
         else:
             st.warning("找不到該物種")
     except Exception as e:
@@ -309,7 +323,10 @@ def one_click_sync_to_personal_drive():
                     current_list = [u for u in current_list if 'drive.google.com' not in str(u)] # 清理舊的 root 連結
                     current_list.insert(0, existing_cloud_url)
                     df.at[idx, '本地照片清單'] = json.dumps(current_list, ensure_ascii=False)
-                    updated += 1
+                
+                # 💡 新增：同步更新「代表照片」欄位
+                df.at[idx, '代表照片'] = existing_cloud_url
+                updated += 1
             else:
                 # 真的沒在那邊，執行遷移
                 st.write(f"📦 遷移 Wiki 資源 (至 wiki backup): {name}...")
@@ -318,6 +335,8 @@ def one_click_sync_to_personal_drive():
                     current_list = [u for u in current_list if 'drive.google.com' not in str(u)]
                     current_list.insert(0, new_url)
                     df.at[idx, '本地照片清單'] = json.dumps(current_list, ensure_ascii=False)
+                    # 💡 新增：同步更新「代表照片」欄位
+                    df.at[idx, '代表照片'] = new_url
                     updated += 1
         
         # 2. 上傳本地殘留圖 -> 丟進 /plants
@@ -361,17 +380,29 @@ MASTER_COLUMNS = [
 ]
 
 def load_master_db():
-    df = load_gsheet_as_df(_SPREADSHEET_NAME, _PLANT_WS)
+    FORCE_LOCAL = True# 🛠️ Debug: 改為 True 可強制讀取本地 CSV 測試數據
+    df = pd.DataFrame()
+    if not FORCE_LOCAL:
+        df = load_gsheet_as_df(_SPREADSHEET_NAME, _PLANT_WS)
+        
     if df.empty and os.path.exists("plant_master_db.csv"):
-        df = pd.read_csv("plant_master_db.csv")
+        df = pd.read_csv("plant_master_db.csv", encoding='utf-8-sig')
+    
+    # 強制清空欄位前後空白 (避免 GSheet 欄位名稱汙染)
+    df.columns = [str(c).strip() for c in df.columns]
     return map_csv_to_master(df)
 
 def save_master_db(df):
+    # 儲存前確保欄位乾淨
+    df.columns = [str(c).strip() for c in df.columns]
     update_gsheet_from_df(_SPREADSHEET_NAME, _PLANT_WS, df)
     df.to_csv("plant_master_db.csv", index=False, encoding='utf-8-sig')
 
 def load_menu_db():
     df = load_gsheet_as_df(_SPREADSHEET_NAME, _MENU_WS)
+    # 預先清理欄位
+    df.columns = [str(c).strip() for c in df.columns]
+    
     if df.empty or 'City' not in df.columns:
         if os.path.exists("menu_db.json"):
             with open("menu_db.json", 'r', encoding='utf-8') as f: return json.load(f)
@@ -424,6 +455,8 @@ def save_menu_db(menu_db):
                 "Description": dish.get('description', '')
             })
     df = pd.DataFrame(rows)
+    # 儲存前清理欄位
+    df.columns = [str(c).strip() for c in df.columns]
     update_gsheet_from_df(_SPREADSHEET_NAME, _MENU_WS, df)
     with open("menu_db.json", 'w', encoding='utf-8') as f:
         json.dump(menu_db, f, ensure_ascii=False, indent=2)
