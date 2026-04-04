@@ -209,16 +209,25 @@ def one_click_sync_to_personal_drive():
     from google_auth_oauthlib.flow import InstalledAppFlow
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
+    from google.auth.exceptions import RefreshError
     import io
     from googleapiclient.http import MediaIoBaseUpload
 
     SCOPES = ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     ROOT_FID = "1IvRyZtlRlDZSitoOw6b_HqnVoA4Qj0dw"
     
-    st.info("🔄 正在啟動個人帳列授權 (OAuth)... 請查看瀏覽器視窗。")
+    st.info("🔄 正在啟動個人帳號授權 (OAuth)... 請查看瀏覽器視窗。")
     creds = None
     if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+        try:
+            creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+        except (RefreshError, Exception):
+            st.warning("⚠️ 登入憑證失效，正在重置...")
+            if os.path.exists('token.json'): os.remove('token.json')
+            creds = None
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
