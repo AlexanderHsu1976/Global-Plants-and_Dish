@@ -49,7 +49,9 @@ def get_plant_arrival_year(city_coord, plant_name, plant_db):
     match = plant_db[plant_db['名稱'].astype(str).str.strip() == plant_name.strip()]
     if match.empty: return 99999
     try: 
-        routes = json.loads(match.iloc[0].get('多重路徑資料', '[]'))
+        raw_routes = match.iloc[0].get('多重路徑資料', '[]')
+        if pd.isna(raw_routes) or str(raw_routes).strip() == "": routes = []
+        else: routes = json.loads(str(raw_routes).replace("'", '"'))
     except: 
         return 99999
     
@@ -148,7 +150,10 @@ if page == "Static Mapping":
         st.divider()
         db_row = df[df['Name'] == selected_plant].iloc[0]
         multi_routes_data = []
-        try: multi_routes_data = json.loads(db_row.get('多重路徑資料', '[]'))
+        try: 
+            raw_data = db_row.get('多重路徑資料', '[]')
+            if pd.notna(raw_data) and str(raw_data).strip() != "":
+                multi_routes_data = json.loads(str(raw_data).replace("'", '"'))
         except: pass
         
         col1, col2 = st.columns([3, 1])
@@ -228,7 +233,11 @@ elif page == "Timeline Simulation":
         p_color = colors[idx % len(colors)]
         db_row = df[df['Name'] == plant].iloc[0]
         try: 
-            r_data = json.loads(db_row.get('多重路徑資料', '[]'))
+            raw_r = db_row.get('多重路徑資料', '[]')
+            r_data = []
+            if pd.notna(raw_r) and str(raw_r).strip() != "":
+                r_data = json.loads(str(raw_r).replace("'", '"'))
+            
             for route in r_data:
                 nodes = [n for n in route.get('nodes', []) if int(n.get('year', 0)) <= current_year]
                 if len(nodes) > 1:
