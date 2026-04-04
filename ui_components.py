@@ -40,7 +40,18 @@ def render_player_card(plant_name: str, plant_db: pd.DataFrame):
     family_cn    = _safe_str(data.get('科'),          '未知')
     family_en    = _safe_str(data.get('英文科名'),    'Unknown')
     origin       = _safe_str(data.get('起源地'),      '待考證')
-    image_url    = _safe_str(data.get('代表照片'),    '')
+    # ── 圖片載入優先權: Drive > Original Wikipedia ────────────────────────────
+    import json
+    image_url = _safe_str(data.get('代表照片'), '')
+    try:
+        raw_list = data.get('本地照片清單', '[]')
+        if pd.notna(raw_list) and str(raw_list).strip() != "":
+            p_list = json.loads(str(raw_list).replace("'", '"'))
+            drive_urls = [u for u in p_list if str(u).startswith('http')]
+            if drive_urls: image_url = drive_urls[0]
+    except:
+        pass
+
     summary      = _safe_str(data.get('調研摘要'),    '尚無摘要，建議執行 AI 深度調研。')
     wiki_url     = _safe_str(data.get('維基連結'),    '')
     special_uses = _safe_str(data.get('特殊用途'),    '')
@@ -165,6 +176,25 @@ def render_player_card(plant_name: str, plant_db: pd.DataFrame):
       </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # ── 🔬 實地調研影像畫廊 (Research Gallery) ──────────────────────────────────
+    try:
+        raw_list = data.get('本地照片清單', '[]')
+        if pd.notna(raw_list) and str(raw_list).strip() != "":
+            all_imgs = json.loads(str(raw_list).replace("'", '"'))
+            # 過濾無效路徑
+            valid_imgs = [u for u in all_imgs if str(u).startswith('http') or os.path.exists(str(u))]
+            
+            if valid_imgs:
+                st.markdown("### 🔬 實地調研影像畫廊")
+                # 使用 Streamlit columns 製作橫向畫廊
+                cols = st.columns(len(valid_imgs) if len(valid_imgs) < 4 else 4)
+                for i, img in enumerate(valid_imgs):
+                    with cols[i % 4]:
+                        label = "☁️ Cloud" if "drive.google" in str(img) else "🌐 Wiki"
+                        st.image(img, use_container_width=True, caption=f"[{label}] {plant_name}-{i+1}")
+    except:
+        pass
 
     # ── Debug expander (shows stored URL for troubleshooting) ─────────────────
     with st.expander("🔍 調試資訊 (Debug)", expanded=False):
