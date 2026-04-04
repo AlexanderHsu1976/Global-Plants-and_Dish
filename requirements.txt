@@ -1,10 +1,28 @@
+# Core Libraries
 streamlit
+folium
 pandas
+streamlit-folium
+geopandas
+shapely
+plotly
+openpyxl
+
+# Standalone GUI Support
+PyQt6
+PyQt6-WebEngine
+
+# Science Verification
+wikipedia-api
+requests
+chardet
+google-genai
+
+# Cloud & AI Infrastructure
 gspread
 google-auth
-requests
-Pillow
-chardet
-folium
-streamlit-folium
+google-auth-oauthlib
+google-auth-httplib2
 google-api-python-client
+duckduckgo_search
+ollama
