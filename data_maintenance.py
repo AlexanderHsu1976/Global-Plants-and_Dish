@@ -380,7 +380,7 @@ MASTER_COLUMNS = [
 ]
 
 def load_master_db():
-    FORCE_LOCAL = True# 🛠️ Debug: 改為 True 可強制讀取本地 CSV 測試數據
+    FORCE_LOCAL = False# 🛠️ Debug: 改為 True 可強制讀取本地 CSV 測試數據
     df = pd.DataFrame()
     if not FORCE_LOCAL:
         df = load_gsheet_as_df(_SPREADSHEET_NAME, _PLANT_WS)
