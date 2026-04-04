@@ -173,15 +173,15 @@ if page == "Static Mapping":
                             curve_pts = interpolate_curved_path(p1, p2)
                             phase = str(nodes[i+1].get('phase', '')).lower()
                             line_style = [10, 20] if ('modern' in phase or 'trade' in phase) else [1]
-                            AntPath(locations=curve_pts, color=color, weight=5, delay=1000, dash_array=line_style).add_to(m)
+                            _ = AntPath(locations=curve_pts, color=color, weight=5, delay=1000, dash_array=line_style).add_to(m)
                     
                     for n in nodes:
                         if n.get('is_waypoint'): continue
                         popup_txt = f"<b>{n.get('name')}</b><br>年份: {n.get('year')}<br>證據: {n.get('evidence')}"
-                _m_obj = folium.Marker(location=n['coord'], popup=folium.Popup(popup_txt, max_width=300), 
-                                      icon=folium.Icon(color=color if color in ['red', 'blue', 'purple', 'orange', 'green'] else 'gray', icon="info-sign")).add_to(m)
+                        _ = folium.Marker(location=n['coord'], popup=folium.Popup(popup_txt, max_width=300), 
+                                          icon=folium.Icon(color=color if color in ['red', 'blue', 'purple', 'orange', 'green'] else 'gray', icon="info-sign")).add_to(m)
             
-            _ = st_folium(m, width="100%", height=600)
+            _map_obj = st_folium(m, width="100%", height=600, key=f"species_map_{selected_plant}")
             
         with col2:
             # 💡 智慧型多重備援照片引擎
