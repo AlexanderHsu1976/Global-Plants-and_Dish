@@ -167,29 +167,26 @@ def verify_access_and_init_api():
 
 def master_ai_survey_agent(target_plant, df):
     """
-    透過 Gemini AI 針對特定植物進行深度考古與地理調研。
+    透過 AI 針對特定植物進行深度考古與地理調研。
+    在地端環境可調用 Ollama 模型。
     """
     if not st.session_state.get('api_active'):
-        st.error("❌ API 未啟動")
+        st.error("❌ API 未啟動 (請確認 Gemini Key 或本地 Ollama 狀態)")
         return
     
+    # 這裡可以根據環境切換 Gemini 或 Ollama
     prompt = f"""
     你是全球植物傳播考古專家。請針對 '{target_plant}' 進行深度調研。
     輸出應包含以下 JSON 格式：
     {{
-        "學名": "...",
-        "科": "...",
-        "起源地": "...",
-        "傳播歷史": "約 150 字的考據內容",
-        "特點": "特殊用途或效用"
+        "學名": "...", "科": "...", "起源地": "...",
+        "傳播歷史": "約 150 字的考據內容", "特點": "特殊用途或效用"
     }}
-    請確保內容學術準確。
     """
     try:
         resp_text = unified_gemini_response(prompt, is_json=True)
         data = json.loads(resp_text)
         
-        # 更新 DataFrame
         idx = df[df['名稱'] == target_plant].index
         if not idx.empty:
             i = idx[0]
@@ -198,11 +195,148 @@ def master_ai_survey_agent(target_plant, df):
             df.at[i, '起源地'] = data.get('起源地', df.at[i, '起源地'])
             df.at[i, '傳播歷史(考據)'] = data.get('傳播歷史', df.at[i, '傳播歷史(考據)'])
             df.at[i, '特殊效用'] = data.get('特點', df.at[i, '特殊效用'])
-            st.success(f"✅ {target_plant} 調研完成並寫入暫存")
+            st.success(f"✅ {target_plant} 調研完成！(資料已更新至暫存，記得按下方同步按鈕上傳雲端)")
         else:
-            st.warning("找不到該物種，無法更新")
+            st.warning("找不到該物種")
     except Exception as e:
         st.error(f"調研失敗: {e}")
+
+def one_click_sync_to_personal_drive():
+    """ 
+    [一鍵搬家] 將所有 Wikipedia 照片與本地照片同步至個人 Drive (OAuth)
+    """
+    from googleapiclient.discovery import build
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    import io
+    from googleapiclient.http import MediaIoBaseUpload
+
+    SCOPES = ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    ROOT_FID = "1IvRyZtlRlDZSitoOw6b_HqnVoA4Qj0dw"
+    
+    st.info("🔄 正在啟動個人帳列授權 (OAuth)... 請查看瀏覽器視窗。")
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            if not os.path.exists('OAuth.json'):
+                st.error("找不到 OAuth.json，無法使用 5TB 權限同步。")
+                return
+            flow = InstalledAppFlow.from_client_secrets_file('OAuth.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+
+    service = build('drive', 'v3', credentials=creds)
+    
+    # 內部小工具：同步邏輯 (整合 Wiki & Local)
+    def upload_generic(local_path, filename, folder_id):
+        try:
+            if local_path.startswith('http'):
+                # 下載網路圖 (Wiki)
+                resp = requests.get(local_path, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+                if resp.status_code != 200: return None
+                image_data = io.BytesIO(resp.content)
+            else:
+                # 讀取本地圖
+                if not os.path.exists(local_path): return None
+                with open(local_path, 'rb') as f:
+                    image_data = io.BytesIO(f.read())
+            
+            file_metadata = {'name': filename, 'parents': [folder_id]}
+            media = MediaIoBaseUpload(image_data, mimetype='image/jpeg', resumable=True)
+            file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+            service.permissions().create(fileId=file.get('id'), body={'type': 'anyone', 'role': 'reader'}).execute()
+            return f"https://drive.google.com/uc?export=view&id={file.get('id')}"
+        except: return None
+
+    # 內部小工具：建立/找尋子資料夾
+    def get_or_create_subfolder(p_id, f_name):
+        q = f"name = '{f_name}' and '{p_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        res = service.files().list(q=q).execute().get('files', [])
+        if res: return res[0]['id']
+        f_meta = {'name': f_name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [p_id]}
+        return service.files().create(body=f_meta, fields='id').execute().get('id')
+
+    # 內部小工具：搜尋檔案是否存在於特定資料夾
+    def find_file_in_folder(f_id, f_name):
+        q = f"name = '{f_name}' and '{f_id}' in parents and trashed = false"
+        res = service.files().list(q=q, fields="files(id)").execute().get('files', [])
+        if res:
+            return f"https://drive.google.com/uc?export=view&id={res[0]['id']}"
+        return None
+
+    # 開始大規模掃描與上傳
+    root_fid = "1IvRyZtlRlDZSitoOw6b_HqnVoA4Qj0dw"
+    plants_fid = get_or_create_subfolder(root_fid, "plants")
+    wiki_back_fid = get_or_create_subfolder(plants_fid, "wiki backup")
+    
+    df = st.session_state.plant_db
+    updated = 0
+    progress = st.progress(0)
+    
+    for idx, row in df.iterrows():
+        name = row['名稱']
+        wiki_url = row['代表照片']
+        current_list = []
+        try:
+            raw = str(row.get('本地照片清單', '[]')).replace("'", '"')
+            current_list = json.loads(raw) if raw != 'nan' and str(raw).strip() != "" else []
+        except: pass
+        
+        # 1. 搬家 Wiki 代表圖 -> 丟進 /plants/wiki backup
+        if str(wiki_url).startswith('http') and 'wiki' in str(wiki_url).lower():
+            target_fname = f"wiki_backup_{name}.jpg"
+            # 💡 關鍵：先在雲端子資料夾搜尋有沒有這張圖
+            existing_cloud_url = find_file_in_folder(wiki_back_fid, target_fname)
+            
+            if existing_cloud_url:
+                # 已經在子目錄了，更新連結確保準確
+                if existing_cloud_url not in current_list:
+                    current_list = [u for u in current_list if 'drive.google.com' not in str(u)] # 清理舊的 root 連結
+                    current_list.insert(0, existing_cloud_url)
+                    df.at[idx, '本地照片清單'] = json.dumps(current_list, ensure_ascii=False)
+                    updated += 1
+            else:
+                # 真的沒在那邊，執行遷移
+                st.write(f"📦 遷移 Wiki 資源 (至 wiki backup): {name}...")
+                new_url = upload_generic(wiki_url, target_fname, wiki_back_fid)
+                if new_url:
+                    current_list = [u for u in current_list if 'drive.google.com' not in str(u)]
+                    current_list.insert(0, new_url)
+                    df.at[idx, '本地照片清單'] = json.dumps(current_list, ensure_ascii=False)
+                    updated += 1
+        
+        # 2. 上傳本地殘留圖 -> 丟進 /plants
+        modified_local = False
+        final_list = []
+        for p in current_list:
+            # 如果是本地檔案，或者是「剛才遷移過來的備份圖」，我們保留
+            # 如果是「舊的、躺在根目錄的 local_xxx 圖片」，我們重新傳一次到 plants 子目錄
+            if p and not str(p).startswith('http') and os.path.exists(p):
+                st.write(f"🚀 上傳本地照片 (至 plants): {name}...")
+                cloud_u = upload_generic(p, f"local_{name}_{int(time.time())}.jpg", plants_fid)
+                if cloud_u:
+                    final_list.append(cloud_u)
+                    modified_local = True
+                else: final_list.append(p)
+            else: final_list.append(p)
+        
+        if modified_local:
+            df.at[idx, '本地照片清單'] = json.dumps(final_list, ensure_ascii=False)
+            updated += 1
+            
+        progress.progress((idx + 1) / len(df))
+    
+    if updated > 0:
+        save_master_db(df)
+        st.success(f"✨ 同步成功！已上傳/遷移 {updated} 筆檔案至您的 5TB 雲端。")
+    else:
+        st.info("✅ 檢查完畢，目前所有資產皆已完成雲端化。")
 
 # --- [Module 2] Data Core (Cloud Refactoring) ---
 
@@ -365,10 +499,13 @@ def save_image_physically(url, item_name, index, log_steps, folder="assets/dishe
 
 def fetch_dish_image(dish):
     """ 
-    【相容性助手】供 app.py 舊版邏輯調用，優先回傳本地資產。
+    優先回傳雲端網址，若無則尋找本地資產。
     """
-    local_paths = dish.get('image_urls', [])
-    if local_paths: return local_paths[0]
+    urls = dish.get('image_urls', [])
+    for u in urls:
+        if u and str(u).startswith('http'): return u
+    for u in urls:
+        if u and os.path.exists(str(u)): return u
     return dish.get('image_url', "")
 
 # --- [Module 4] UI Components ---
@@ -376,7 +513,7 @@ def fetch_dish_image(dish):
 def render_dish_image_management(dish, sel_city, city_data, menu_db, dish_idx):
     dish_zh = dish['name']
     u_key = f"{dish_zh}_{dish_idx}"
-    local_paths = [p for p in dish.get("image_urls", []) if p and os.path.exists(p)]
+    local_paths = [p for p in dish.get("image_urls", []) if p and (str(p).startswith('http') or os.path.exists(str(p)))]
     
     with st.container(border=True):
         st.write(f"### 🍽️ {dish_zh}")
@@ -444,26 +581,35 @@ def render_page_3():
             st.success("植物大表同步完成")
             
         st.divider()
-        st.subheader("🔬 深度考古工具箱")
-        col_t1, col_t2 = st.columns([1, 2])
+        st.subheader("🔬 深度考古與雲端同步工具箱")
+        col_t1, col_t2, col_t3 = st.columns([1.5, 1, 1.5])
         with col_t1:
             target = st.selectbox("選擇調研目標", st.session_state.plant_db['名稱'].unique())
+            st.session_state.research_model = st.selectbox("核心研究模型", ["Gemini (Cloud)", "Ollama (Local)"], index=0)
             if st.button("🚀 啟動 AI 調研"):
                 with st.spinner(f"正在挖掘 {target} 的歷史..."):
+                    # 這裡未來可擴充 Ollama 呼叫邏輯
                     master_ai_survey_agent(target, st.session_state.plant_db)
+        
         with col_t2:
-            st.info("AI 將針對選定物種進行學名、科別、起源地與歷史內容的自動補完。")
-            if st.button("🖼️ 補全代表照片 (Drive)"):
+            st.write("🖼️ 照片管理")
+            if st.button("📸 補全代表照片 (Drive)"):
                 with st.spinner(f"正在為 {target} 尋找並保存照片..."):
                     idx = st.session_state.plant_db[st.session_state.plant_db['名稱'] == target].index[0]
                     row = st.session_state.plant_db.loc[idx]
                     img_url, logs = fetch_plant_representative_image(target, row.get('英文名稱',''), row.get('學名',''))
                     if img_url:
                         st.session_state.plant_db.at[idx, '代表照片'] = img_url
-                        st.image(img_url, caption="新上傳的照片 (Google Drive)")
-                        st.success("照片已保存至 Drive 並更新暫存")
-                    else: st.error("照片補完失敗")
+                        st.image(img_url, caption="照片已存入 Drive")
+                        save_master_db(st.session_state.plant_db)
             
+        with col_t3:
+            st.write("🌐 雲端連動")
+            if st.button("☁️ 一鍵全系統雲端同步", type="primary", use_container_width=True):
+                one_click_sync_to_personal_drive()
+                st.rerun()
+            st.caption("⚠️ 此動作將強行搬移 Wikipedia 圖片與本地資產至 5TB 個人雲端並同步 Sheets。")
+
     with tab2:
         st.subheader("Google Sheet: city_menus")
         menu_db = load_menu_db()

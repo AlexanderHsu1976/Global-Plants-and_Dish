@@ -64,16 +64,37 @@ def get_plant_arrival_year(city_coord, plant_name, plant_db):
     return earliest
 
 def load_historical_boundary(year):
-    """讀取歷史邊界地圖 (GeoJSON)"""
-    available_years = [117, 300, 500, 800, 1000, 1300, 1492, 1600, 1914, 1945]
-    if year < 0: return None
-    target_year = 117
+    """讀取歷史邊界地圖 (GeoJSON)，自動掃描現有年份檔案"""
+    territory_dir = "data/territories"
+    
+    # 動態掃描目錄中的年份 (檔名需為 數字.json)
+    if not os.path.exists(territory_dir): 
+        return None
+        
+    available_years = []
+    for f in os.listdir(territory_dir):
+        if f.endswith(".json"):
+            try:
+                available_years.append(int(f.replace(".json", "")))
+            except:
+                continue
+    available_years.sort()
+    
+    if not available_years: 
+        return None
+    
+    # 尋找小於等於當前的最接近年份
+    target_year = available_years[0]
     for y in available_years:
-        if y <= year: target_year = y
-    file_path = f"data/territories/{target_year}.json"
+        if y <= year:
+            target_year = y
+            
+    file_path = os.path.join(territory_dir, f"{target_year}.json")
     if os.path.exists(file_path):
-        with open(file_path, 'r', encoding='utf-8') as f: return json.load(f)
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
     return None
+
 
 # --- 🚀 App Initialization ---
 
@@ -158,7 +179,18 @@ if page == "Static Mapping":
             st_folium(m, width="100%", height=600)
             
         with col2:
+            # 優先從「本地照片清單」抓取第一個雲端網址 (Drive)
             img_url = db_row.get('代表照片', "")
+            try:
+                raw_list = db_row.get('本地照片清單', '[]')
+                if pd.notna(raw_list) and str(raw_list).strip() != "":
+                    p_list = json.loads(str(raw_list).replace("'", '"'))
+                    drive_urls = [u for u in p_list if str(u).startswith('http')]
+                    if drive_urls: img_url = drive_urls[0]
+            except:
+                pass
+            
+            # 顯示圖片 (Drive 優先)
             st.image(img_url if img_url and str(img_url) != 'nan' else "https://via.placeholder.com/400x300?text=No+Image", use_container_width=True)
             if st.button("📋 顯示物種基本資料", use_container_width=True, type="primary"):
                 st.session_state['_show_profile'] = selected_plant
@@ -228,8 +260,10 @@ elif page == "Time VS Menu Challenge":
 
     col1, col2 = st.columns([1, 2])
     with col1:
-        img_urls = dish.get('image_urls', [])
-        display_img = img_urls[0] if img_urls else "https://via.placeholder.com/600x400?text=No+Photo"
+        from data_maintenance import fetch_dish_image
+        display_img = fetch_dish_image(dish)
+        if not display_img or str(display_img).strip() == "":
+            display_img = "https://via.placeholder.com/600x400?text=No+Photo"
         st.image(display_img, use_container_width=True, caption=dish['name'])
         if st.button("🎲 隨機換一道菜"):
             import random
