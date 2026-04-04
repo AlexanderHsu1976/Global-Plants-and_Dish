@@ -89,7 +89,7 @@ def upload_to_drive(image_url, filename):
         # 設定權限為公開檢視 (Anyone with the link can view)
         service.permissions().create(
             fileId=file_id,
-            body={'type': 'anyone', 'role': 'viewer'}
+            body={'type': 'anyone', 'role': 'reader'}
         ).execute()
         
         # 回傳直連連結
@@ -541,13 +541,17 @@ def save_image_physically(url, item_name, index, log_steps, folder="assets/dishe
 
 def fetch_dish_image(dish):
     """ 
-    優先回傳雲端網址，若無則尋找本地資產。
+    高優先級：尋找本地存在之原始資產 (支援 localhost 測試)
+    低優先級：回傳雲端網址
     """
     urls = dish.get('image_urls', [])
+    # 1. 優先檢查本地檔案是否存在
+    for u in urls:
+        if u and not str(u).startswith('http') and os.path.exists(str(u)): return u
+    # 2. 次要回傳雲端網址
     for u in urls:
         if u and str(u).startswith('http'): return u
-    for u in urls:
-        if u and os.path.exists(str(u)): return u
+    
     return dish.get('image_url', "")
 
 # --- [Module 4] UI Components ---
@@ -617,9 +621,25 @@ def render_page_3():
     with tab1:
         st.subheader("Google Sheet: plant_master")
         edited_df = st.data_editor(st.session_state.plant_db, num_rows="dynamic", use_container_width=True)
-        if st.button("💾 同步至雲端"):
-            st.session_state.plant_db = edited_df
-            save_master_db(edited_df)
+        st.success(f"目前共載入 {len(st.session_state.plant_db)} 筆植物資料")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🔄 重載地端 CSV 並覆蓋雲端"):
+                with st.spinner("正在讀取地端 CSV 並同步至雲端..."):
+                    # 強制重新讀取地端檔案 (無論 FORCE_LOCAL 是什麼)
+                    df_local = pd.read_csv("plant_master_db.csv", encoding='utf-8-sig')
+                    df_local.columns = [str(c).strip() for c in df_local.columns]
+                    st.session_state.plant_db = map_csv_to_master(df_local)
+                    save_master_db(st.session_state.plant_db)
+                    st.success(f"✅ 已成功將地端檔案 (共 {len(df_local)} 筆) 覆蓋至 Google Sheets！")
+                    st.rerun()
+        
+        with c2:
+            if st.button("💾 同步資料編輯器內容"):
+                st.session_state.plant_db = edited_df
+                save_master_db(edited_df)
+                st.success("✅ 編輯內容已同步！")
             st.success("植物大表同步完成")
             
         st.divider()

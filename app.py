@@ -184,19 +184,60 @@ if page == "Static Mapping":
             st_folium(m, width="100%", height=600)
             
         with col2:
-            # 優先從「本地照片清單」抓取第一個雲端網址 (Drive)
-            img_url = db_row.get('代表照片', "")
-            try:
-                raw_list = db_row.get('本地照片清單', '[]')
-                if pd.notna(raw_list) and str(raw_list).strip() != "":
-                    p_list = json.loads(str(raw_list).replace("'", '"'))
-                    drive_urls = [u for u in p_list if str(u).startswith('http')]
-                    if drive_urls: img_url = drive_urls[0]
-            except:
-                pass
+            # 💡 智慧型多重備援照片引擎
+            # 1. 優先本地路徑 A (從資料庫列表精確匹配)
+            # 2. 優先本地路徑 B (模糊搜尋 assets/plants/{名稱}.jpg)
+            # 3. 雲端網址 (Drive / Wiki)
+            # 4. 預設占位圖 (Placeholder)
             
-            # 顯示圖片 (Drive 優先)
-            st.image(img_url if img_url and str(img_url) != 'nan' else "https://via.placeholder.com/400x300?text=No+Image", use_container_width=True)
+            img_url = ""
+            name_zh = db_row.get('名稱', '')
+            raw_list = db_row.get('本地照片清單', '[]')
+            
+            # --- Step 1: 精確匹配清單內的本地檔案 ---
+            try:
+                if pd.notna(raw_list) and str(raw_list).strip() != "":
+                    if str(raw_list).startswith('['):
+                        p_list = json.loads(str(raw_list).replace("'", '"'))
+                    else:
+                        p_list = [str(raw_list).strip()]
+                    
+                    for p in p_list:
+                        if p and not str(p).startswith('http') and os.path.exists(str(p)):
+                            img_url = str(p)
+                            break
+            except: pass
+            
+            # --- Step 2: 模糊匹配 (針對 localhost 使用者，若資料庫已轉雲端但地端仍有備份) ---
+            if not img_url:
+                local_plant_dir = "assets/plants"
+                if os.path.exists(local_plant_dir):
+                    # 搜尋所有開頭為該物種名稱的 jpg/png
+                    matches = [f for f in os.listdir(local_plant_dir) if f.startswith(name_zh)]
+                    if matches:
+                        img_url = os.path.join(local_plant_dir, matches[0])
+
+            # --- Step 3: 回退至雲端網址 ---
+            if not img_url:
+                # 先看清單裡有沒有 URL
+                try:
+                    if str(raw_list).startswith('['):
+                        p_list = json.loads(str(raw_list).replace("'", '"'))
+                        for p in p_list:
+                            if p and str(p).startswith('http'):
+                                img_url = str(p)
+                                break
+                except: pass
+                
+                # 再看「代表照片」欄位
+                if not img_url:
+                    rep_photo = db_row.get('代表照片', "")
+                    if rep_photo and str(rep_photo) != 'nan':
+                        img_url = rep_photo
+
+            # --- Step 4: 最終備援與顯示 ---
+            fallback_img = "https://via.placeholder.com/400x300?text=Wait+for+Asset+Sync"
+            st.image(img_url if img_url and str(img_url) != "" else fallback_img, use_container_width=True)
             if st.button("📋 顯示物種基本資料", use_container_width=True, type="primary"):
                 st.session_state['_show_profile'] = selected_plant
 
