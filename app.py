@@ -235,17 +235,24 @@ if page == "Static Mapping":
                     if rep_photo and str(rep_photo) != 'nan':
                         img_url = rep_photo
 
-            # --- Step 4: 最終備援與顯示 ---
-            # 💡 終極防護：確保 img_url 絕對是有效字串，且不顯示任何雜訊
-            img_to_show = "https://via.placeholder.com/400x300?text=Wait+for+Asset+Sync"
-            if img_url and isinstance(img_url, str) and len(str(img_url)) > 5:
-                if not str(img_url).isdigit():
-                    img_to_show = img_url
+            # --- Step 4: 最終備用與顯示 (終極防禦版) ---
+            # 💡 只要不是具備一定長度的「正常網址或路徑」，一律視為無效資產
+            final_img_source = "https://via.placeholder.com/400x300?text=Wait+for+Asset+Sync"
+            
+            # 強制將 img_url 轉為字串並進行深度檢查
+            clean_url = str(img_url).strip()
+            if clean_url and clean_url not in ["0", "nan", "None", "[]"] and len(clean_url) > 10:
+                if clean_url.startswith('http') or os.path.exists(clean_url):
+                    final_img_source = clean_url
 
+            # 執行顯示，並用 try-except 包裹避免最後一公里的崩潰
             try:
-                st.image(img_to_show, use_container_width=True)
-            except Exception as e:
-                st.image("https://via.placeholder.com/400x300?text=Image+Load+Failed", use_container_width=True)
+                st.image(final_img_source, use_container_width=True)
+            except:
+                st.image("https://via.placeholder.com/400x300?text=Asset+Link+Invalid", use_container_width=True)
+            
+            # 清除潛在的緩衝輸出
+            st.write("")
             
             if st.button("📋 顯示物種基本資料", use_container_width=True, type="primary"):
                 st.session_state['_show_profile'] = selected_plant
