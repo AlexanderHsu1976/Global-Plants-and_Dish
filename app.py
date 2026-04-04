@@ -178,10 +178,10 @@ if page == "Static Mapping":
                     for n in nodes:
                         if n.get('is_waypoint'): continue
                         popup_txt = f"<b>{n.get('name')}</b><br>年份: {n.get('year')}<br>證據: {n.get('evidence')}"
-                        folium.Marker(location=n['coord'], popup=folium.Popup(popup_txt, max_width=300), 
+                _m_obj = folium.Marker(location=n['coord'], popup=folium.Popup(popup_txt, max_width=300), 
                                       icon=folium.Icon(color=color if color in ['red', 'blue', 'purple', 'orange', 'green'] else 'gray', icon="info-sign")).add_to(m)
             
-            st_folium(m, width="100%", height=600)
+            _ = st_folium(m, width="100%", height=600)
             
         with col2:
             # 💡 智慧型多重備援照片引擎
