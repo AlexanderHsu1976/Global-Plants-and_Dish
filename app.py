@@ -237,7 +237,11 @@ if page == "Static Mapping":
 
             # --- Step 4: 最終備援與顯示 ---
             fallback_img = "https://via.placeholder.com/400x300?text=Wait+for+Asset+Sync"
-            st.image(img_url if img_url and str(img_url) != "" else fallback_img, use_container_width=True)
+            try:
+                st.image(img_url if img_url and str(img_url) != "" else fallback_img, use_container_width=True)
+            except:
+                st.image(fallback_img, use_container_width=True)
+            
             if st.button("📋 顯示物種基本資料", use_container_width=True, type="primary"):
                 st.session_state['_show_profile'] = selected_plant
 
@@ -314,7 +318,14 @@ elif page == "Time VS Menu Challenge":
         display_img = fetch_dish_image(dish)
         if not display_img or str(display_img).strip() == "":
             display_img = "https://via.placeholder.com/600x400?text=No+Photo"
-        st.image(display_img, use_container_width=True, caption=dish['name'])
+        
+        try:
+            # 💡 增加防護，避免雲端嘗試讀取不存在的地端路徑而崩潰
+            st.image(display_img, use_container_width=True, caption=dish['name'])
+        except Exception as e:
+            st.warning(f"🍱 菜餚 [{dish['name']}] 照片暫時無法在雲端顯示")
+            st.image("https://via.placeholder.com/600x400?text=Wait+for+Sync", use_container_width=True)
+            
         if st.button("🎲 隨機換一道菜"):
             import random
             st.session_state.current_dish_idx = random.randint(0, 99)

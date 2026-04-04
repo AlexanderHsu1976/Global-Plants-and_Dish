@@ -541,13 +541,18 @@ def save_image_physically(url, item_name, index, log_steps, folder="assets/dishe
 
 def fetch_dish_image(dish):
     """ 
-    高優先級：尋找本地存在之原始資產 (支援 localhost 測試)
+    高優先級：尋找本地存在之原始資產 (僅限地端執行)
     低優先級：回傳雲端網址
     """
     urls = dish.get('image_urls', [])
-    # 1. 優先檢查本地檔案是否存在
-    for u in urls:
-        if u and not str(u).startswith('http') and os.path.exists(str(u)): return u
+    # 💡 雲端避彈衣：如果偵測到是 Cloud 環境，強制跳過本地路徑
+    is_cloud = os.getenv("STREAMLIT_RUNTIME_ENV_CLOUD") == "true" or "mount/src" in os.getcwd()
+    
+    # 1. 優先本地檔案 (僅在地端環境且檔案確實存在時)
+    if not is_cloud:
+        for u in urls:
+            if u and not str(u).startswith('http') and os.path.exists(str(u)): return u
+            
     # 2. 次要回傳雲端網址
     for u in urls:
         if u and str(u).startswith('http'): return u
