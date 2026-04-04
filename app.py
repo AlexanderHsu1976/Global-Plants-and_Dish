@@ -237,18 +237,19 @@ if page == "Static Mapping":
 
             # --- Step 4: 最終備援與顯示 ---
             # 💡 終極防護：確保 img_url 絕對是有效字串，且不是 "0", "nan" 或其他怪東西
-            valid_img = False
             img_to_show = "https://via.placeholder.com/400x300?text=Wait+for+Asset+Sync"
             
-            if img_url and isinstance(img_url, str) and len(img_url) > 5:
-                if img_url.startswith('http') or os.path.exists(img_url):
+            # 強制過濾掉 0, NaN 或是空內容
+            if img_url and isinstance(img_url, str) and len(str(img_url)) > 5:
+                # 再次確認它不是隨機數字
+                if not str(img_url).isdigit():
                     img_to_show = img_url
-                    valid_img = True
 
             try:
+                # 只在 img_to_show 看起來真的像網址或路徑時顯示
                 st.image(img_to_show, use_container_width=True)
-            except:
-                st.image("https://via.placeholder.com/400x300?text=Display+Error", use_container_width=True)
+            except Exception as e:
+                st.image("https://via.placeholder.com/400x300?text=Image+Load+Failed", use_container_width=True)
             
             if st.button("📋 顯示物種基本資料", use_container_width=True, type="primary"):
                 st.session_state['_show_profile'] = selected_plant
